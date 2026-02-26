@@ -64,5 +64,4 @@ jobs:
           AP_KEY: ${{ secrets.AP_KEY }}
           CHART_CODE: ${{ secrets.CHART_CODE }}
         run: |
-          . ~/.Renviron
-          Rscript "power.R"
+          Rscript -e '.libPaths("~/Rlib"); source("power.R")'
