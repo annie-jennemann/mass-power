@@ -18,3 +18,5 @@ resp <- request(url) |>
 
 dat <- read_csv(resp_body_raw(resp), show_col_types = FALSE)
 print(head(dat))
+
+
