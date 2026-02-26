@@ -1,6 +1,7 @@
+.libPaths("~/Rlib")
 library(httr2)
 library(readr)
-library(tidyverse)
+library(DatawRappr)
 
 api_key <- Sys.getenv("API_KEY")
 us_map <- Sys.getenv("CHART_CODE")
