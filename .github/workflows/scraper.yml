@@ -56,7 +56,7 @@ jobs:
           mkdir -p ~/Rlib
           echo 'R_LIBS_USER=~/Rlib' >> ~/.Renviron
           echo 'options(repos = c(CRAN = "https://cloud.r-project.org"))' >> ~/.Rprofile
-          Rscript -e '.libPaths("~/Rlib"); install.packages(c("remotes","magick","usethis","sf","units"), lib="~/Rlib")'
+          Rscript -e '.libPaths("~/Rlib"); install.packages(c("remotes","magick","usethis","sf","units","httr2","readr"), lib="~/Rlib")'
           Rscript -e '.libPaths("~/Rlib"); remotes::install_github("munichrocker/DatawRappr", lib="~/Rlib", auth_token=Sys.getenv("GITHUB_PAT"), dependencies=TRUE)'
 
       - name: Run R script
