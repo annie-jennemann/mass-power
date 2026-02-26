@@ -61,7 +61,6 @@ jobs:
 
       - name: Run R script
         env:
-          AP_KEY: ${{ secrets.AP_KEY }}
-          CHART_CODE: ${{ secrets.CHART_CODE }}
+          AP_KEY: ${{ secrets.API_KEY }}
         run: |
           Rscript -e '.libPaths("~/Rlib"); source("power.R")'
