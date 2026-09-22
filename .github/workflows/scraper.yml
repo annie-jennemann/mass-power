@@ -1,66 +1,27 @@
-name: Run R Script
+name: Update power outage chart
 
 on:
   push:
     branches:
       - main
+  workflow_dispatch:
   schedule:
     - cron: "*/5 * * * *"
-  workflow_dispatch: {}
 
 jobs:
-  run-r-script:
+  update-chart:
     runs-on: ubuntu-latest
-
+    permissions:
+      contents: read
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup R
-        uses: r-lib/actions/setup-r@v2
-
-      - name: Install system dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libcurl4-openssl-dev \
-            libssl-dev \
-            libgit2-dev \
-            libxml2-dev \
-            libmagick++-dev \
-            libharfbuzz-dev \
-            libfribidi-dev \
-            libfontconfig1-dev \
-            pandoc \
-            git \
-            libudunits2-dev \
-            libgdal-dev \
-            libgeos-dev \
-            libproj-dev \
-            proj-data \
-            proj-bin \
-            gdal-bin
-
-      - name: Cache R packages
-        uses: actions/cache@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
         with:
-          path: ~/Rlib
-          key: ${{ runner.os }}-R-${{ hashFiles('**/scripts/*.R') }}
-          restore-keys: |
-            ${{ runner.os }}-R-
+          python-version: "3.12"
 
-      - name: Install R packages
-        env:
-          GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mkdir -p ~/Rlib
-          echo 'R_LIBS_USER=~/Rlib' >> ~/.Renviron
-          echo 'options(repos = c(CRAN = "https://cloud.r-project.org"))' >> ~/.Rprofile
-          Rscript -e '.libPaths("~/Rlib"); install.packages(c("remotes","magick","usethis","sf","units","httr2","readr"), lib="~/Rlib")'
-          Rscript -e '.libPaths("~/Rlib"); remotes::install_github("munichrocker/DatawRappr", lib="~/Rlib", auth_token=Sys.getenv("GITHUB_PAT"), dependencies=TRUE)'
-
-      - name: Run R script
+      - name: Update and publish Datawrapper chart
         env:
           API_KEY: ${{ secrets.API_KEY }}
-        run: |
-          Rscript -e '.libPaths("~/Rlib"); source("power.R")'
+        run: python power.py
