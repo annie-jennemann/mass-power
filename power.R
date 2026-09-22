@@ -1,40 +1,136 @@
-library(httr2)
-library(readr)
-library(DatawRappr)
+#!/usr/bin/env python3
+"""Update and publish the Massachusetts power-outage Datawrapper chart."""
 
-url <- "http://mema.mapsonline.net/power_outage_public.csv"
+from __future__ import annotations
 
-resp <- request(url) |>
-  req_user_agent("Mozilla/5.0 (GitHub Actions; R)") |>
-  req_retry(max_tries = 8) |>
-  req_timeout(120) |>
-  req_perform()
+import csv
+import json
+import os
+import sys
+import time
+from datetime import datetime
+from decimal import Decimal, InvalidOperation
+from io import StringIO
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
+from zoneinfo import ZoneInfo
 
-dat <- read_csv(resp_body_raw(resp), show_col_types = FALSE)
-print(head(dat))
 
-total <- sum(dat[["Without Power"]], na.rm = TRUE)
+OUTAGE_URL = "http://mema.mapsonline.net/power_outage_public.csv"
+CHART_ID = "cP5ai"
+DATAWRAPPER_API_URL = "https://api.datawrapper.de/v3"
+USER_AGENT = "Mozilla/5.0 (GitHub Actions; Python)"
 
-total <- format(total, big.mark = ",", scientific = FALSE)
 
-api_key <- Sys.getenv("API_KEY")
+def request_with_retries(
+    request: Request, *, attempts: int = 8, timeout: int = 120
+) -> bytes:
+    """Perform an HTTP request, retrying transient failures with backoff."""
+    last_error: Exception | None = None
 
-et_time <- as.POSIXlt(Sys.time(), tz = "America/New_York")
+    for attempt in range(attempts):
+        try:
+            with urlopen(request, timeout=timeout) as response:
+                return response.read()
+        except (HTTPError, URLError, TimeoutError) as error:
+            last_error = error
+            if isinstance(error, HTTPError) and error.code not in {
+                408,
+                425,
+                429,
+                500,
+                502,
+                503,
+                504,
+            }:
+                raise
+            if attempt == attempts - 1:
+                break
+            time.sleep(min(2**attempt, 30))
 
-formatted_time <- format(et_time, "%B %d at %I:%M %p EST")
+    raise RuntimeError(f"Request failed after {attempts} attempts: {last_error}")
 
-formatted_time <- sub(" 0", " ", formatted_time)   # day
-formatted_time <- sub(" at 0", " at ", formatted_time) # hour
 
-formatted_time <- gsub("AM", "a.m.", formatted_time)
-formatted_time <- gsub("PM", "p.m.", formatted_time)
+def fetch_total() -> tuple[Decimal, list[dict[str, str]]]:
+    request = Request(OUTAGE_URL, headers={"User-Agent": USER_AGENT})
+    raw_csv = request_with_retries(request).decode("utf-8-sig")
+    rows = list(csv.DictReader(StringIO(raw_csv)))
 
-datawrapper_auth(api_key =  api_key, overwrite=TRUE)
+    if not rows or "Without Power" not in rows[0]:
+        raise ValueError("CSV does not contain a 'Without Power' column")
 
-dw_edit_chart("cP5ai",
-              title = paste0("<b>",total,"</b> customers are without power in Massachusetts"),
-              annotate = paste("Chart updated ", formatted_time)
-)
+    total = Decimal("0")
+    for row in rows:
+        value = (row.get("Without Power") or "").strip().replace(",", "")
+        if not value:
+            continue
+        try:
+            total += Decimal(value)
+        except InvalidOperation as error:
+            raise ValueError(f"Invalid 'Without Power' value: {value!r}") from error
 
-dw_publish_chart("cP5ai")
+    return total, rows[:5]
 
+
+def format_timestamp() -> str:
+    now = datetime.now(ZoneInfo("America/New_York"))
+    # %-d and %-I produce the same no-leading-zero formatting as the R code.
+    formatted = now.strftime("%B %-d at %-I:%M %p EST")
+    return formatted.replace("AM", "a.m.").replace("PM", "p.m.")
+
+
+def update_chart(api_key: str, title: str, annotation: str) -> None:
+    url = f"{DATAWRAPPER_API_URL}/charts/{CHART_ID}"
+    payload = {
+        "title": title,
+        "metadata": {"annotate": {"notes": annotation}},
+    }
+    request = Request(
+        url,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="PATCH",
+    )
+    request_with_retries(request, timeout=120)
+
+    publish_request = Request(
+        f"{url}/publish",
+        data=b"{}",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "User-Agent": USER_AGENT,
+        },
+        method="POST",
+    )
+    request_with_retries(publish_request, timeout=120)
+
+
+def main() -> int:
+    api_key = os.environ.get("API_KEY")
+    if not api_key:
+        print("Missing required API_KEY environment variable.", file=sys.stderr)
+        return 2
+
+    total, first_rows = fetch_total()
+    print("First rows:")
+    for row in first_rows:
+        print(row)
+
+    total_text = f"{total:,.0f}"
+    title = f"<b>{total_text}</b> customers are without power in Massachusetts"
+    annotation = f"Chart updated {format_timestamp()}"
+
+    update_chart(api_key, title, annotation)
+    print(title)
+    print(annotation)
+    print(f"Published Datawrapper chart {CHART_ID}.")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
